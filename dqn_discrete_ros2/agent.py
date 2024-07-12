@@ -12,8 +12,10 @@ from datetime import datetime, timedelta
 import argparse
 import itertools
 import os
+import state_subscriber
+import action_publisher
 
-import flappy_bird_gymnasium
+#import flappy_bird_gymnasium
 
 # For printing date and time
 DATE_FORMAT = "%m-%d %H:%M:%S"
@@ -81,6 +83,7 @@ class Agent():
         self.LOG_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.log')
         self.MODEL_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.pt')
         self.GRAPH_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.png')
+        #self.action
 
     def run(self, is_training=True, render=False):
         if is_training:
@@ -119,16 +122,18 @@ class Agent():
             while not terminated and episode_reward < self.stop_on_reward:
                 if is_training and random.random() < epsilon:
                     action = env.action_space.sample()
-                    action = torch.tensor(action, dtype=torch.int64, device=device)
+                    #action = torch.tensor(action, dtype=torch.int64, device=device)
                 else:
                     with torch.no_grad():
                         action = policy_dqn(state.unsqueeze(dim=0)).squeeze().argmax()
+                        action = action.item()
 
-                new_state, reward, terminated, truncated, info = env.step(action.item())
+                #new_state, reward, terminated, truncated, info = env.step(action.item())
+                new_state, reward, terminated, truncated, info = env.step(action)
                 episode_reward += reward
                 new_state = torch.tensor(new_state, dtype=torch.float, device=device)
                 reward = torch.tensor(reward, dtype=torch.float, device=device)
-
+                action = torch.tensor(action, dtype=torch.int64, device=device)
                 if is_training:
                     memory.append((state, action, new_state, reward, terminated))
                     step_count += 1

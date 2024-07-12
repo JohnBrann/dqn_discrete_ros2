@@ -4,17 +4,15 @@ from rclpy.node import Node
 from model_msgs.msg import CartpoleState
 
 
-class EnvironmentPublisher(Node):
+class StatePublisher(Node):
 
     def __init__(self):
-        super().__init__('environment_node')
+        super().__init__('state_publisher_node')
         self.publisher_ = self.create_publisher(CartpoleState, 'environment_state', 10)
-        self.env = gym.make("CartPole-v1", render_mode="human")
-        self.env.reset()  # Initialize the environment
 
-    def publish_state(self):
+    def publish_state(self, step):
         # Get the current state
-        current_state, reward, terminated, truncated, info = self.env.step(self.env.action_space.sample())
+        current_state, reward, terminated, truncated, info = step #self.env.step(self.env.action_space.sample())
 
         # Create CartpoleState message
         msg = CartpoleState()
@@ -33,7 +31,7 @@ class EnvironmentPublisher(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    environment_publisher = EnvironmentPublisher()
+    environment_publisher = StatePublisher()
 
     # Main loop for publishing during training
     try:

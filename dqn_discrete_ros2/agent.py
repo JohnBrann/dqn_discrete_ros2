@@ -14,6 +14,10 @@ import itertools
 import os
 import state_subscriber
 import action_publisher
+import rclpy
+from rclpy.node import Node
+
+from model_msgs.srv import env_reset
 
 #import flappy_bird_gymnasium
 
@@ -28,7 +32,20 @@ os.makedirs(RUNS_DIR, exist_ok=True)
 matplotlib.use('Agg')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-device = 'cpu'  # force cpu, sometimes GPU not always faster than CPU due to overhead of moving data to GPU
+
+class EnvResetClient(Node):
+    def __init__(self):
+        super().__init__('env_reset_client')
+        self.client = self.create_client(env_reset, 'env_reset')
+        while not self.client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info('reset env service not available, waiting again...')
+        self.req = env_reset.Request()
+
+    def send_request(self, reset_request):
+        self.req.reset_request = reset_request
+        self.future = self.cli.call_async(self.req)
+        rclpy.spin_until_future_complete(self, self.future)
+        return self.future.result()
 
 
 class ReplayMemory():
@@ -66,7 +83,6 @@ class Agent():
             hyperparameters = all_hyperparameter_sets[hyperparameter_set]
 
         self.hyperparameter_set = hyperparameter_set
-        self.env_id = hyperparameters['env_id']
         self.learning_rate_a = hyperparameters['learning_rate_a']
         self.discount_factor_g = hyperparameters['discount_factor_g']
         self.network_sync_rate = hyperparameters['network_sync_rate']
@@ -94,9 +110,9 @@ class Agent():
             with open(self.LOG_FILE, 'w') as file:
                 file.write(log_message + '\n')
 
-        env = gym.make(self.env_id, render_mode='human' if render else None, **self.env_make_params)
-        num_actions = env.action_space.n
-        num_states = env.observation_space.shape[0]
+        #env = gym.make(self.env_id, render_mode='human' if render else None, **self.env_make_params)
+        #num_actions = env.action_space.n
+        #num_states = env.observation_space.shape[0]
         rewards_per_episode = []
         policy_dqn = DQN(num_states, num_actions, self.fc1_nodes).to(device)
 
@@ -164,6 +180,12 @@ class Agent():
                     if step_count > self.network_sync_rate:
                         target_dqn.load_state_dict(policy_dqn.state_dict())
                         step_count = 0
+            # Service to signal an epsiode has ended so we can reset the state
+            # "waiting for new episode"
+            client = EnvResetClient()
+            response = client.send_request("Environment Reset Request")
+            client.get_logger().info(f'Response for {response.reset_request}: is_reset {response.is_reset}')
+
 
     def save_graph(self, rewards_per_episode, epsilon_history):
         fig = plt.figure(1)

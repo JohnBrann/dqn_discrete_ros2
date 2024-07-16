@@ -22,6 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'environment_publisher = dqn_discrete_ros2.environment_publisher:main',
+            'ros_gym_environment_helper = dqn_discrete_ros2.ros_gym_environment_helper:main'
         ],
     },
 )

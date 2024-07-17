@@ -12,7 +12,7 @@ class StatePublisher(Node):
 
     def publish_state(self, step):
         # Get the current state
-        current_state, reward, terminated, truncated, info = step #self.env.step(self.env.action_space.sample())
+        current_state, reward, terminated, truncated = step #self.env.step(self.env.action_space.sample())
 
         # Create CartpoleState message
         msg = CartpoleState()

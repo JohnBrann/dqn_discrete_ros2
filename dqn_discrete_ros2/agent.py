@@ -12,12 +12,14 @@ from datetime import datetime, timedelta
 import argparse
 import itertools
 import os
-import state_subscriber
-import action_publisher
+
 import rclpy
 from rclpy.node import Node
+from state_subscriber import StateSubscriber
 
-from model_msgs.srv import env_reset
+from model_msgs.srv import EnvReset
+from model_msgs.srv import EnvSetup
+from model_msgs.srv import EnvStep
 
 #import flappy_bird_gymnasium
 
@@ -36,10 +38,10 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 class EnvResetClient(Node):
     def __init__(self):
         super().__init__('env_reset_client')
-        self.client = self.create_client(env_reset, 'env_reset')
+        self.client = self.create_client(EnvReset, 'env_reset')
         while not self.client.wait_for_service(timeout_sec=2.0):
             self.get_logger().info('reset env service not available, waiting again...')
-        self.req = env_reset.Request()
+        self.req = self.client.Request()
 
     def send_request(self, reset_request):
         self.req.reset_request = reset_request
@@ -47,7 +49,45 @@ class EnvResetClient(Node):
         rclpy.spin_until_future_complete(self, self.future)
         return self.future.result()
 
+class EnvDimClient(Node):
+    def __init__(self):
+        super().__init__('env_dim_client')
+        self.client = self.create_client(EnvSetup, 'env_setup')
+        while not self.EnvDimClient.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info('env dimension service not available, waiting again...')
+        self.req = self.client.Request()
 
+    def send_request(self, reset_request):
+        self.req.reset_request = reset_request
+        self.future = self.cli.call_async(self.req)
+        rclpy.spin_until_future_complete(self, self.future)
+        return self.future.result()
+
+class EnvStepClient(Node):
+    def __init__(self):
+        self.client = self.create_client(EnvStep, 'env_step')
+        while not self.client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info('reset env service not available, waiting again...')
+        self.req = self.client.Request() 
+    def send_request(self, step_request):
+        self.req.step_request = step_request
+        self.future = self.cli.call_async(self.req)
+        rclpy.spin_until_future_complete(self, self.future)
+        return self.future.result()
+    
+class EnvStateClient(Node):
+    def __init__(self):
+        self.client = self.create_client(EnvStep, 'env_state')
+        while not self.client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info('service not available, waiting again...')
+        self.req = self.client.Request() 
+    def send_request(self, state_request):
+        self.req.state_request = state_request
+        self.future = self.cli.call_async(self.req)
+        rclpy.spin_until_future_complete(self, self.future)
+        return self.future.result()
+
+        
 class ReplayMemory():
     def __init__(self, maxlen, seed=None):
         self.memory = deque([], maxlen=maxlen)
@@ -83,6 +123,7 @@ class Agent():
             hyperparameters = all_hyperparameter_sets[hyperparameter_set]
 
         self.hyperparameter_set = hyperparameter_set
+        self.is_training = hyperparameters['is_training']
         self.learning_rate_a = hyperparameters['learning_rate_a']
         self.discount_factor_g = hyperparameters['discount_factor_g']
         self.network_sync_rate = hyperparameters['network_sync_rate']
@@ -93,14 +134,23 @@ class Agent():
         self.epsilon_min = hyperparameters['epsilon_min']
         self.stop_on_reward = hyperparameters['stop_on_reward']
         self.fc1_nodes = hyperparameters['fc1_nodes']
-        self.env_make_params = hyperparameters.get('env_make_params', {})
+        # self.env_make_params = hyperparameters.get('env_make_params', {})
         self.loss_fn = nn.MSELoss()
         self.optimizer = None
+        self.env_dim_client = EnvDimClient()
+        self.reset_client = EnvResetClient()
+        self.step_client = EnvStepClient()
+        self.state_client = EnvStateClient()
+
+        dim_message = self.env_dim_client.send_request()
+
+        self.action_space_dim = dim_message.action_dim
+        self.state_dim = dim_message.state_dim
+        
         self.LOG_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.log')
         self.MODEL_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.pt')
         self.GRAPH_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.png')
-        #self.action
-
+        
     def run(self, is_training=True, render=False):
         if is_training:
             start_time = datetime.now()
@@ -114,12 +164,12 @@ class Agent():
         #num_actions = env.action_space.n
         #num_states = env.observation_space.shape[0]
         rewards_per_episode = []
-        policy_dqn = DQN(num_states, num_actions, self.fc1_nodes).to(device)
+        policy_dqn = DQN(self.state_dim, self.action_space_dim, self.fc1_nodes).to(device)
 
         if is_training:
             epsilon = self.epsilon_init
             memory = ReplayMemory(self.replay_memory_size)
-            target_dqn = DQN(num_states, num_actions, self.fc1_nodes).to(device)
+            target_dqn = DQN(self.state_dim, self.action_space_dim, self.fc1_nodes).to(device)
             target_dqn.load_state_dict(policy_dqn.state_dict())
             self.optimizer = torch.optim.Adam(policy_dqn.parameters(), lr=self.learning_rate_a)
             epsilon_history = []
@@ -130,14 +180,18 @@ class Agent():
             policy_dqn.eval()
 
         for episode in itertools.count():
-            state, _ = env.reset()
+            # reset env
+            # grab state from topic
+            self.reset_client.send_request()
+
+            state = self.state_subscriber.step_data()
             state = torch.tensor(state, dtype=torch.float, device=device)
             terminated = False
             episode_reward = 0.0
 
             while not terminated and episode_reward < self.stop_on_reward:
                 if is_training and random.random() < epsilon:
-                    action = env.action_space.sample()
+                    action = random.sample(self.action_space_dim)
                     #action = torch.tensor(action, dtype=torch.int64, device=device)
                 else:
                     with torch.no_grad():
@@ -145,13 +199,21 @@ class Agent():
                         action = action.item()
 
                 #new_state, reward, terminated, truncated, info = env.step(action.item())
-                new_state, reward, terminated, truncated, info = env.step(action)
+
+                
+                #receive step from service
+                state_srv = self.step_client.send_request(action)
+                state = np.array([state_srv.cart_pos, state_srv.cart_velocity, state_srv.pole_angle, state_srv.pole_angular_velocity])
+                # Converts current state information for cartpole into a numpy array to match formatting used by Agent without ROS
+                self.step_data = (state, state_srv.reward, state_srv.terminated, state_srv.truncated)
+                new_state, reward, terminated, truncated = self.step_data
                 episode_reward += reward
                 new_state = torch.tensor(new_state, dtype=torch.float, device=device)
                 reward = torch.tensor(reward, dtype=torch.float, device=device)
                 action = torch.tensor(action, dtype=torch.int64, device=device)
+                
                 if is_training:
-                    memory.append((state, action, new_state, reward, terminated))
+                    memory.append((state, action, new_state, reward, terminated, truncated))
                     step_count += 1
 
                 state = new_state

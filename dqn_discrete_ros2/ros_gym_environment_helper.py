@@ -27,7 +27,6 @@ class RosGymEnvHelper(Node):
         # declare new action publisher
         # declare random action subscriber
         # declare state_subscriber
-        self.state_publisher = StatePublisher()
         self.env_setup_server = EnvSetupServer()
         
     def next_step(self, step):

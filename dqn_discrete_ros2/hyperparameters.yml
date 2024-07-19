@@ -10,7 +10,7 @@ cartpole1:
   discount_factor_g: 0.99
   stop_on_reward: 100000
   fc1_nodes: 10
-  is_training: True
+  is_training: False
 
 flappybird1:
   env_id: FlappyBird-v0

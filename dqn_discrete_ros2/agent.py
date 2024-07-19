@@ -32,56 +32,6 @@ matplotlib.use('Agg')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-class EnvResetClient(Node):
-    def __init__(self):
-        super().__init__('env_reset_client')
-        self.client = self.create_client(EnvReset, 'env_reset')
-        while not self.client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().info('reset env service not available, waiting again...')
-        self.req = EnvReset.Request()
-
-    def send_request(self):
-        self.future = self.client.call_async(self.req)
-        rclpy.spin_until_future_complete(self, self.future)
-        return self.future.result()
-
-class EnvDimClient(Node):
-    def __init__(self):
-        super().__init__('env_dim_client')
-        self.client = self.create_client(EnvSetup, 'env_setup')
-        while not self.client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().info('env dimension service not available, waiting again...')
-        self.req = EnvSetup.Request()
-
-    def send_request(self):
-        self.get_logger().info("Sending request...")
-        self.future = self.client.call_async(self.req)
-        rclpy.spin_until_future_complete(self, self.future)
-        if self.future.done():
-            try:
-                response = self.future.result()
-                self.get_logger().info(f"Received response: state_dim={response.state_dim}, action_dim={response.action_dim}")
-                return response
-            except Exception as e:
-                self.get_logger().error(f"Service call failed: {e}")
-        else:
-            self.get_logger().error("Service call timed out")
-        return None
-
-class EnvStepClient(Node):
-    def __init__(self):
-        super().__init__('env_step_client')
-        self.client = self.create_client(EnvStepCartpole, 'env_step')
-        while not self.client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().info('step env service not available, waiting again...')
-        self.req = EnvStepCartpole.Request()
-
-    def send_request(self, action):
-        self.req.action = action
-        self.future = self.client.call_async(self.req)
-        rclpy.spin_until_future_complete(self, self.future)
-        return self.future.result()
-
 class ReplayMemory():
     def __init__(self, maxlen, seed=None):
         self.memory = deque([], maxlen=maxlen)
@@ -109,7 +59,7 @@ class DQN(nn.Module):
 
 class Agent(Node):
     def __init__(self):
-        super().__init__('env_step_client')
+        super().__init__('agent_node')
 
         with open('/home/csrobot/pytorch_ws/src/dqn_discrete_ros2/dqn_discrete_ros2/hyperparameters.yml', 'r') as file:
             all_hyperparameter_sets = yaml.safe_load(file)
@@ -131,17 +81,21 @@ class Agent(Node):
         self.loss_fn = nn.MSELoss()
         self.optimizer = None
 
-        # self.env_dim_client = env_dim_client
-        # self.reset_client = env_reset_client
-        # self.step_client = env_step_client
-
-        self.env_reset_client = EnvResetClient()
-        self.env_dim_client = EnvDimClient()
-        self.env_step_client = EnvStepClient()
+        # Initialize service clients
+        self.env_reset_client = self.create_client(EnvReset, 'env_reset')
+        self.env_dim_client = self.create_client(EnvSetup, 'env_setup')
+        self.env_step_client = self.create_client(EnvStepCartpole, 'env_step')
         
-        print("HELLLLLLLLLOOOOOOOOOOOOOO 125")
-        dim_message = self.env_dim_client.send_request()
-        print("HELLLLLLLLLOOOOOOOOOOOOOOOO 127")
+        while not self.env_reset_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info('reset env service not available, waiting again...')
+        
+        while not self.env_dim_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info('env dimension service not available, waiting again...')
+        
+        while not self.env_step_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info('step env service not available, waiting again...')
+        
+        dim_message = self.send_env_dim_request()
 
         self.action_space_dim = dim_message.action_dim
         self.state_dim = dim_message.state_dim
@@ -149,6 +103,25 @@ class Agent(Node):
         self.LOG_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.log')
         self.MODEL_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.pt')
         self.GRAPH_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.png')
+
+    def send_env_dim_request(self):
+        req = EnvSetup.Request()
+        future = self.env_dim_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future)
+        return future.result()
+
+    def send_env_reset_request(self):
+        req = EnvReset.Request()
+        future = self.env_reset_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future)
+        return future.result()
+
+    def send_env_step_request(self, action):
+        req = EnvStepCartpole.Request()
+        req.action = action
+        future = self.env_step_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future)
+        return future.result()
 
     def run(self, is_training=True, render=False):
         if is_training:
@@ -176,7 +149,7 @@ class Agent(Node):
             policy_dqn.eval()
 
         for episode in itertools.count():
-            self.reset_client.send_request()
+            self.send_env_reset_request()
 
             state = self.state_subscriber.step_data()
             state = torch.tensor(state, dtype=torch.float, device=device)
@@ -191,7 +164,7 @@ class Agent(Node):
                         action = policy_dqn(state.unsqueeze(dim=0)).squeeze().argmax()
                         action = action.item()
 
-                state_srv = self.step_client.send_request(action)
+                state_srv = self.send_env_step_request(action)
                 state = np.array([state_srv.cart_pos, state_srv.cart_velocity, state_srv.pole_angle, state_srv.pole_angular_velocity])
                 self.step_data = (state, state_srv.reward, state_srv.terminated, state_srv.truncated)
                 new_state, reward, terminated, truncated = self.step_data
@@ -248,46 +221,18 @@ class Agent(Node):
 
         with torch.no_grad():
             target_q = rewards + (1-terminations) * self.discount_factor_g * target_dqn(new_states).max(dim=1)[0]
-
-        current_q = policy_dqn(states).gather(dim=1, index=actions.unsqueeze(dim=1)).squeeze()
+        current_q = policy_dqn(states).gather(1, actions.unsqueeze(dim=1)).squeeze()
         loss = self.loss_fn(current_q, target_q)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-    def shutdown_nodes(self):
-        self.env_reset_client.destroy_node()
-        self.env_dim_client.destroy_node()
-        self.env_step_client.destroy_node()
-        # Add destroy_node() calls for other nodes as needed
-        self.destroy_node()  # Destroy the Agent node itself
-
-
-def main():
-    rclpy.init()
-
-    # env_reset_client = EnvResetClient()
-    # env_dim_client = EnvDimClient()
-    # env_step_client = EnvStepClient()
-
-    dql = Agent()
-    rclpy.spin(dql)
-    dql.run(is_training=True)
-    print("here")
-    
+def main(args=None):
+    rclpy.init(args=args)
+    agent = Agent()
+    agent.run(is_training=True)
+    agent.destroy_node()
     rclpy.shutdown()
 
-    # mainnode.spin
-    #mainnode.subnode.spn()
-    # spinngin a ndoe. we are not spinnign any nodes
-
-# if __name__ == '__main__':
-#     parser = argparse.ArgumentParser(description='Train or test model.')
-#     parser.add_argument('hyperparameters', help='')
-#     parser.add_argument('--train', help='Training mode', action='store_true')
-#     args = parser.parse_args()
-#     dql = Agent(hyperparameter_set=args.hyperparameters)
-#     if args.train:
-#         dql.run(is_training=True)
-#     else:
-#         dql.run(is_training=False, render=True)
+if __name__ == '__main__':
+    main()

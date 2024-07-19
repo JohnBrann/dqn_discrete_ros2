@@ -105,18 +105,21 @@ class Agent(Node):
         self.GRAPH_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.png')
 
     def send_env_dim_request(self):
+        self.get_logger().info(f'Sending dimension request...')
         req = EnvSetup.Request()
         future = self.env_dim_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
 
     def send_env_reset_request(self):
+        self.get_logger().info(f'Sending reset request...')
         req = EnvReset.Request()
         future = self.env_reset_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
 
     def send_env_step_request(self, action):
+        self.get_logger().info(f'Sending step request...')
         req = EnvStepCartpole.Request()
         req.action = action
         future = self.env_step_client.call_async(req)
@@ -149,16 +152,15 @@ class Agent(Node):
             policy_dqn.eval()
 
         for episode in itertools.count():
-            self.send_env_reset_request()
-
-            state = self.state_subscriber.step_data()
+            initial_state_srv = self.send_env_reset_request()
+            state = np.array([initial_state_srv.cart_pos, initial_state_srv.cart_velocity, initial_state_srv.pole_angle, initial_state_srv.pole_angular_velocity])
             state = torch.tensor(state, dtype=torch.float, device=device)
             terminated = False
             episode_reward = 0.0
 
             while not terminated and episode_reward < self.stop_on_reward:
                 if is_training and random.random() < epsilon:
-                    action = random.sample(self.action_space_dim)
+                    action = random.sample(range(self.action_space_dim), 1)[0]
                 else:
                     with torch.no_grad():
                         action = policy_dqn(state.unsqueeze(dim=0)).squeeze().argmax()
@@ -169,10 +171,12 @@ class Agent(Node):
                 self.step_data = (state, state_srv.reward, state_srv.terminated, state_srv.truncated)
                 new_state, reward, terminated, truncated = self.step_data
                 episode_reward += reward
+                state = torch.tensor(state, dtype=torch.float, device=device)
                 new_state = torch.tensor(new_state, dtype=torch.float, device=device)
                 reward = torch.tensor(reward, dtype=torch.float, device=device)
                 action = torch.tensor(action, dtype=torch.int64, device=device)
-                
+                terminated = torch.tensor(terminated, dtype=torch.float, device=device)
+                truncated = torch.tensor(truncated, dtype=torch.float, device=device)
                 if is_training:
                     memory.append((state, action, new_state, reward, terminated, truncated))
                     step_count += 1
@@ -212,12 +216,13 @@ class Agent(Node):
         plt.subplot(121)
 
     def optimize(self, mini_batch, policy_dqn, target_dqn):
-        states, actions, new_states, rewards, terminations = zip(*mini_batch)
+        states, actions, new_states, rewards, terminations, truncations = zip(*mini_batch)
         states = torch.stack(states)
         actions = torch.stack(actions)
         new_states = torch.stack(new_states)
         rewards = torch.stack(rewards)
         terminations = torch.tensor(terminations).float().to(device)
+        truncations = torch.tensor(truncations).float().to(device)
 
         with torch.no_grad():
             target_q = rewards + (1-terminations) * self.discount_factor_g * target_dqn(new_states).max(dim=1)[0]

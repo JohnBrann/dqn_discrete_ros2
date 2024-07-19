@@ -26,26 +26,31 @@ class RosGymEnvHelper(Node):
         self.env_step_server = self.create_service(EnvStepCartpole, 'env_step', self.step_callback)
 
     def setup_callback(self, request, response):
-        response.state_dim = 25#self.env.observation_space.shape[0]
-        response.action_dim = 35#self.env.action_space.n
+        response.state_dim = self.env.observation_space.shape[0]
+        response.action_dim = self.env.action_space.n.item()
         self.get_logger().info(f'Sending environment information to agent: state_dim={response.state_dim}, action_dim={response.action_dim}')
         return response
 
     def reset_callback(self, request, response):
         self.get_logger().info(f'Received reset request...')
-        self.env.reset()
-        response.is_reset = True
+        obs, _ = self.env.reset()
+        response.cart_pos = obs[0].item()
+        response.cart_velocity = obs[1].item()
+        response.pole_angle = obs[2].item()
+        response.pole_angular_velocity = obs[3].item()
         return response
 
     def step_callback(self, request, response):
-        obs, reward, done, info = self.env.step(request.action)
-        response.cart_pos = obs[0]
-        response.cart_velocity = obs[1]
-        response.pole_angle = obs[2]
-        response.pole_angular_velocity = obs[3]
+        self.get_logger().info(f'Received step request...')
+        obs, reward, terminated, truncated, info = self.env.step(request.action)
+        response.cart_pos = obs[0].item()
+        response.cart_velocity = obs[1].item()
+        response.pole_angle = obs[2].item()
+        response.pole_angular_velocity = obs[3].item()
         response.reward = reward
-        response.terminated = done
-        response.truncated = info.get('TimeLimit.truncated', False)
+        response.terminated = terminated
+        response.truncated = truncated
+        self.get_logger().info(f'Step message = {response}')
         return response
 
 def main(args=None):

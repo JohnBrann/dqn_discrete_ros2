@@ -1,6 +1,0 @@
-source;share/dqn_discrete_ros2/hook/pythonpath.ps1
-source;share/dqn_discrete_ros2/hook/pythonpath.dsv
-source;share/dqn_discrete_ros2/hook/pythonpath.sh
-source;share/dqn_discrete_ros2/hook/ament_prefix_path.ps1
-source;share/dqn_discrete_ros2/hook/ament_prefix_path.dsv
-source;share/dqn_discrete_ros2/hook/ament_prefix_path.sh

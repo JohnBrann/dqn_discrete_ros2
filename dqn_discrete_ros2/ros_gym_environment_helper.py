@@ -3,21 +3,22 @@ import rclpy
 from rclpy.node import Node
 import yaml
 import argparse
+from rclpy.parameter import Parameter
+
 from model_msgs.srv import EnvReset, EnvSetup, EnvStepCartpole
 
 class RosGymEnvHelper(Node):
     def __init__(self):
         super().__init__('ros_gym_env_helper')
-        with open('/home/csrobot/pytorch_ws/src/dqn_discrete_ros2/dqn_discrete_ros2/hyperparameters.yml', 'r') as file:
-            all_hyperparameter_sets = yaml.safe_load(file)
-            hyperparameters = all_hyperparameter_sets['cartpole1']
-        self.hyperparameter_set = 'cartpole1'
-        self.is_training = hyperparameters['is_training']
-        self.env_id = hyperparameters['env_id']
-        self.env_make_params = hyperparameters.get('env_make_params', {})
+
+          # Declare parameters
+        self.env_id = self.declare_parameter('env_id', Parameter.Type.STRING).get_parameter_value().string_value
+        self.is_training = self.declare_parameter('is_training', Parameter.Type.BOOL).get_parameter_value().bool_value
+        # self.env_make_params = self.declare_parameter('env_make_params', Parameter.Type.STRING).get_parameter('env_make_params').get_parameter_value().string_value
+
 
         # Initialize the gym environment
-        self.env = gym.make(self.env_id, render_mode=None if self.is_training else 'human', **self.env_make_params)
+        self.env = gym.make(self.env_id, render_mode=None if self.is_training else 'human')#, **self.env_make_params)
         self.env.reset()
 
         # Create services
@@ -32,7 +33,7 @@ class RosGymEnvHelper(Node):
         return response
 
     def reset_callback(self, request, response):
-        self.get_logger().info(f'Received reset request...')
+        #self.get_logger().info(f'Received reset request...')
         obs, _ = self.env.reset()
         response.cart_pos = obs[0].item()
         response.cart_velocity = obs[1].item()
@@ -41,7 +42,7 @@ class RosGymEnvHelper(Node):
         return response
 
     def step_callback(self, request, response):
-        self.get_logger().info(f'Received step request...')
+        #self.get_logger().info(f'Received step request...')
         obs, reward, terminated, truncated, info = self.env.step(request.action)
         response.cart_pos = obs[0].item()
         response.cart_velocity = obs[1].item()
@@ -50,7 +51,7 @@ class RosGymEnvHelper(Node):
         response.reward = reward
         response.terminated = terminated
         response.truncated = truncated
-        self.get_logger().info(f'Step message = {response}')
+        #self.get_logger().info(f'Step message = {response}')
         return response
 
 def main(args=None):

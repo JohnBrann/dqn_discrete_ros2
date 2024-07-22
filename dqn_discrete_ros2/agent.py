@@ -15,6 +15,7 @@ import os
 
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 
 from model_msgs.srv import EnvReset
 from model_msgs.srv import EnvSetup
@@ -59,25 +60,22 @@ class DQN(nn.Module):
 
 class Agent(Node):
     def __init__(self):
-        super().__init__('agent_node')
+        super().__init__('agent_node')  
 
-        with open('/home/csrobot/pytorch_ws/src/dqn_discrete_ros2/dqn_discrete_ros2/hyperparameters.yml', 'r') as file:
-            all_hyperparameter_sets = yaml.safe_load(file)
-            hyperparameter_set='cartpole1'
-            hyperparameters = all_hyperparameter_sets[hyperparameter_set]
+        # Declare and set parameters from yaml file
+        self.model_name = self.declare_parameter('model_name', Parameter.Type.STRING).get_parameter_value().string_value
+        self.replay_memory_size = self.declare_parameter('replay_memory_size', Parameter.Type.INTEGER).get_parameter_value().integer_value
+        self.mini_batch_size = self.declare_parameter('mini_batch_size', Parameter.Type.INTEGER).get_parameter_value().integer_value
+        self.epsilon_init = self.declare_parameter('epsilon_init', Parameter.Type.DOUBLE).get_parameter_value().double_value
+        self.epsilon_decay = self.declare_parameter('epsilon_decay', Parameter.Type.DOUBLE).get_parameter_value().double_value
+        self.epsilon_min = self.declare_parameter('epsilon_min', Parameter.Type.DOUBLE).get_parameter_value().double_value
+        self.network_sync_rate = self.declare_parameter('network_sync_rate', Parameter.Type.INTEGER).get_parameter_value().integer_value
+        self.learning_rate_a = self.declare_parameter('learning_rate_a', Parameter.Type.DOUBLE).get_parameter_value().double_value
+        self.discount_factor_g = self.declare_parameter('discount_factor_g', Parameter.Type.DOUBLE).get_parameter_value().double_value
+        self.stop_on_reward = self.declare_parameter('stop_on_reward', Parameter.Type.INTEGER).get_parameter_value().integer_value
+        self.fc1_nodes = self.declare_parameter('fc1_nodes', Parameter.Type.INTEGER).get_parameter_value().integer_value
+        self.is_training = self.declare_parameter('is_training', Parameter.Type.BOOL).get_parameter_value().bool_value
 
-        self.hyperparameter_set = hyperparameter_set
-        self.is_training = hyperparameters['is_training']
-        self.learning_rate_a = hyperparameters['learning_rate_a']
-        self.discount_factor_g = hyperparameters['discount_factor_g']
-        self.network_sync_rate = hyperparameters['network_sync_rate']
-        self.replay_memory_size = hyperparameters['replay_memory_size']
-        self.mini_batch_size = hyperparameters['mini_batch_size']
-        self.epsilon_init = hyperparameters['epsilon_init']
-        self.epsilon_decay = hyperparameters['epsilon_decay']
-        self.epsilon_min = hyperparameters['epsilon_min']
-        self.stop_on_reward = hyperparameters['stop_on_reward']
-        self.fc1_nodes = hyperparameters['fc1_nodes']
         self.loss_fn = nn.MSELoss()
         self.optimizer = None
 
@@ -100,9 +98,9 @@ class Agent(Node):
         self.action_space_dim = dim_message.action_dim
         self.state_dim = dim_message.state_dim
         
-        self.LOG_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.log')
-        self.MODEL_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.pt')
-        self.GRAPH_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.png')
+        self.LOG_FILE = os.path.join(RUNS_DIR, f'{self.model_name}.log')
+        self.MODEL_FILE = os.path.join(RUNS_DIR, f'{self.model_name}.pt')
+        self.GRAPH_FILE = os.path.join(RUNS_DIR, f'{self.model_name}.png')
 
     def send_env_dim_request(self):
         self.get_logger().info(f'Sending dimension request...')
@@ -112,14 +110,14 @@ class Agent(Node):
         return future.result()
 
     def send_env_reset_request(self):
-        self.get_logger().info(f'Sending reset request...')
+        #self.get_logger().info(f'Sending reset request...')
         req = EnvReset.Request()
         future = self.env_reset_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
 
     def send_env_step_request(self, action):
-        self.get_logger().info(f'Sending step request...')
+        #self.get_logger().info(f'Sending step request...')
         req = EnvStepCartpole.Request()
         req.action = action
         future = self.env_step_client.call_async(req)
@@ -131,7 +129,7 @@ class Agent(Node):
             start_time = datetime.now()
             last_graph_update_time = start_time
             log_message = f"{start_time.strftime(DATE_FORMAT)}: Training starting..."
-            print(log_message)
+            self.get_logger().info(log_message)
             with open(self.LOG_FILE, 'w') as file:
                 file.write(log_message + '\n')
 
@@ -188,7 +186,7 @@ class Agent(Node):
             if is_training:
                 if episode_reward > best_reward:
                     log_message = f"{datetime.now().strftime(DATE_FORMAT)}: New best reward {episode_reward:0.1f} ({(episode_reward-best_reward)/best_reward*100:+.1f}%) at episode {episode}, saving model..."
-                    print(log_message)
+                    self.get_logger().info(log_message)
                     with open(self.LOG_FILE, 'a') as file:
                         file.write(log_message + '\n')
                     torch.save(policy_dqn.state_dict(), self.MODEL_FILE)
@@ -214,6 +212,14 @@ class Agent(Node):
         for x in range(len(mean_rewards)):
             mean_rewards[x] = np.mean(rewards_per_episode[max(0, x-99):(x+1)])
         plt.subplot(121)
+        plt.ylabel('Mean Rewards')
+        plt.plot(mean_rewards)
+        plt.subplot(122)
+        plt.ylabel('Epsilon Decay')
+        plt.plot(epsilon_history)
+        plt.subplots_adjust(wspace=1.0, hspace=1.0)
+        fig.savefig(self.GRAPH_FILE)
+        plt.close(fig)
 
     def optimize(self, mini_batch, policy_dqn, target_dqn):
         states, actions, new_states, rewards, terminations, truncations = zip(*mini_batch)

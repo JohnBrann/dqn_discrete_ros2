@@ -97,7 +97,7 @@ class Agent(Node):
         # Initialize service clients
         self.env_reset_client = self.create_client(EnvReset, 'env_reset')
         self.env_dim_client = self.create_client(EnvSetup, 'env_setup')
-        self.env_step_client = self.create_client(EnvStepCartpole, 'env_step')
+        self.env_step_client = self.create_client(EnvStep, 'env_step')
         
         while not self.env_reset_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().info('reset env service not available, waiting again...')
@@ -133,7 +133,7 @@ class Agent(Node):
 
     def send_env_step_request(self, action):
         #self.get_logger().info(f'Sending step request...')
-        req = EnvStepCartpole.Request()
+        req = EnvStep.Request()
         req.action = action
         future = self.env_step_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)

@@ -13,7 +13,7 @@ class RosGymEnvHelper(Node):
 
          # Declare parameters
         self.declare_parameter('env_id', 'CartPole-v1')
-        self.declare_parameter('is_training', True)
+        self.declare_parameter('is_training', False)
         # self.declare_parameter('parameters.ros_gym_env_helper.env_make_params', 'default_value')
 
         # Get parameter values

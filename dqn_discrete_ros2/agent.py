@@ -62,19 +62,34 @@ class Agent(Node):
     def __init__(self):
         super().__init__('agent_node')  
 
-        # Declare and set parameters from yaml file
-        self.model_name = self.declare_parameter('model_name', Parameter.Type.STRING).get_parameter_value().string_value
-        self.replay_memory_size = self.declare_parameter('replay_memory_size', Parameter.Type.INTEGER).get_parameter_value().integer_value
-        self.mini_batch_size = self.declare_parameter('mini_batch_size', Parameter.Type.INTEGER).get_parameter_value().integer_value
-        self.epsilon_init = self.declare_parameter('epsilon_init', Parameter.Type.DOUBLE).get_parameter_value().double_value
-        self.epsilon_decay = self.declare_parameter('epsilon_decay', Parameter.Type.DOUBLE).get_parameter_value().double_value
-        self.epsilon_min = self.declare_parameter('epsilon_min', Parameter.Type.DOUBLE).get_parameter_value().double_value
-        self.network_sync_rate = self.declare_parameter('network_sync_rate', Parameter.Type.INTEGER).get_parameter_value().integer_value
-        self.learning_rate_a = self.declare_parameter('learning_rate_a', Parameter.Type.DOUBLE).get_parameter_value().double_value
-        self.discount_factor_g = self.declare_parameter('discount_factor_g', Parameter.Type.DOUBLE).get_parameter_value().double_value
-        self.stop_on_reward = self.declare_parameter('stop_on_reward', Parameter.Type.INTEGER).get_parameter_value().integer_value
-        self.fc1_nodes = self.declare_parameter('fc1_nodes', Parameter.Type.INTEGER).get_parameter_value().integer_value
-        self.is_training = self.declare_parameter('is_training', Parameter.Type.BOOL).get_parameter_value().bool_value
+        # Declare parameters
+        self.declare_parameter('model_name', '')
+        self.declare_parameter('replay_memory_size', 100000)
+        self.declare_parameter('mini_batch_size', 64)
+        self.declare_parameter('epsilon_init', 1.0)
+        self.declare_parameter('epsilon_decay', 0.9995)
+        self.declare_parameter('epsilon_min', 0.05)
+        self.declare_parameter('network_sync_rate', 10)
+        self.declare_parameter('learning_rate_a', 0.0001)
+        self.declare_parameter('discount_factor_g', 0.99)
+        self.declare_parameter('stop_on_reward', 1000)
+        self.declare_parameter('fc1_nodes', 10)
+        self.declare_parameter('is_training', False)
+
+        # Set parameter values
+        self.model_name = self.get_parameter('model_name').get_parameter_value().string_value
+        self.replay_memory_size = self.get_parameter('replay_memory_size').get_parameter_value().integer_value
+        self.mini_batch_size = self.get_parameter('mini_batch_size').get_parameter_value().integer_value
+        self.epsilon_init = self.get_parameter('epsilon_init').get_parameter_value().double_value
+        self.epsilon_decay = self.get_parameter('epsilon_decay').get_parameter_value().double_value
+        self.epsilon_min = self.get_parameter('epsilon_min').get_parameter_value().double_value
+        self.network_sync_rate = self.get_parameter('network_sync_rate').get_parameter_value().integer_value
+        self.learning_rate_a = self.get_parameter('learning_rate_a').get_parameter_value().double_value
+        self.discount_factor_g = self.get_parameter('discount_factor_g').get_parameter_value().double_value
+        self.stop_on_reward = self.get_parameter('stop_on_reward').get_parameter_value().integer_value
+        self.fc1_nodes = self.get_parameter('fc1_nodes').get_parameter_value().integer_value
+        self.is_training = self.get_parameter('is_training').get_parameter_value().bool_value
+
 
         self.loss_fn = nn.MSELoss()
         self.optimizer = None

@@ -19,7 +19,7 @@ from rclpy.parameter import Parameter
 
 from model_msgs.srv import EnvReset
 from model_msgs.srv import EnvSetup
-from model_msgs.srv import EnvStepCartpole
+from model_msgs.srv import EnvStep
 
 # For printing date and time
 DATE_FORMAT = "%m-%d %H:%M:%S"
@@ -62,19 +62,34 @@ class Agent(Node):
     def __init__(self):
         super().__init__('agent_node')  
 
-        # Declare and set parameters from yaml file
-        self.model_name = self.declare_parameter('model_name', Parameter.Type.STRING).get_parameter_value().string_value
-        self.replay_memory_size = self.declare_parameter('replay_memory_size', Parameter.Type.INTEGER).get_parameter_value().integer_value
-        self.mini_batch_size = self.declare_parameter('mini_batch_size', Parameter.Type.INTEGER).get_parameter_value().integer_value
-        self.epsilon_init = self.declare_parameter('epsilon_init', Parameter.Type.DOUBLE).get_parameter_value().double_value
-        self.epsilon_decay = self.declare_parameter('epsilon_decay', Parameter.Type.DOUBLE).get_parameter_value().double_value
-        self.epsilon_min = self.declare_parameter('epsilon_min', Parameter.Type.DOUBLE).get_parameter_value().double_value
-        self.network_sync_rate = self.declare_parameter('network_sync_rate', Parameter.Type.INTEGER).get_parameter_value().integer_value
-        self.learning_rate_a = self.declare_parameter('learning_rate_a', Parameter.Type.DOUBLE).get_parameter_value().double_value
-        self.discount_factor_g = self.declare_parameter('discount_factor_g', Parameter.Type.DOUBLE).get_parameter_value().double_value
-        self.stop_on_reward = self.declare_parameter('stop_on_reward', Parameter.Type.INTEGER).get_parameter_value().integer_value
-        self.fc1_nodes = self.declare_parameter('fc1_nodes', Parameter.Type.INTEGER).get_parameter_value().integer_value
-        self.is_training = self.declare_parameter('is_training', Parameter.Type.BOOL).get_parameter_value().bool_value
+        # Declare parameters
+        self.declare_parameter('model_name', '')
+        self.declare_parameter('replay_memory_size', 100000)
+        self.declare_parameter('mini_batch_size', 64)
+        self.declare_parameter('epsilon_init', 1.0)
+        self.declare_parameter('epsilon_decay', 0.9995)
+        self.declare_parameter('epsilon_min', 0.05)
+        self.declare_parameter('network_sync_rate', 10)
+        self.declare_parameter('learning_rate_a', 0.0001)
+        self.declare_parameter('discount_factor_g', 0.99)
+        self.declare_parameter('stop_on_reward', 1000)
+        self.declare_parameter('fc1_nodes', 10)
+        self.declare_parameter('is_training', False)
+
+        # Set parameter values
+        self.model_name = self.get_parameter('model_name').get_parameter_value().string_value
+        self.replay_memory_size = self.get_parameter('replay_memory_size').get_parameter_value().integer_value
+        self.mini_batch_size = self.get_parameter('mini_batch_size').get_parameter_value().integer_value
+        self.epsilon_init = self.get_parameter('epsilon_init').get_parameter_value().double_value
+        self.epsilon_decay = self.get_parameter('epsilon_decay').get_parameter_value().double_value
+        self.epsilon_min = self.get_parameter('epsilon_min').get_parameter_value().double_value
+        self.network_sync_rate = self.get_parameter('network_sync_rate').get_parameter_value().integer_value
+        self.learning_rate_a = self.get_parameter('learning_rate_a').get_parameter_value().double_value
+        self.discount_factor_g = self.get_parameter('discount_factor_g').get_parameter_value().double_value
+        self.stop_on_reward = self.get_parameter('stop_on_reward').get_parameter_value().integer_value
+        self.fc1_nodes = self.get_parameter('fc1_nodes').get_parameter_value().integer_value
+        self.is_training = self.get_parameter('is_training').get_parameter_value().bool_value
+
 
         self.loss_fn = nn.MSELoss()
         self.optimizer = None
@@ -82,7 +97,7 @@ class Agent(Node):
         # Initialize service clients
         self.env_reset_client = self.create_client(EnvReset, 'env_reset')
         self.env_dim_client = self.create_client(EnvSetup, 'env_setup')
-        self.env_step_client = self.create_client(EnvStepCartpole, 'env_step')
+        self.env_step_client = self.create_client(EnvStep, 'env_step')
         
         while not self.env_reset_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().info('reset env service not available, waiting again...')
@@ -118,14 +133,14 @@ class Agent(Node):
 
     def send_env_step_request(self, action):
         #self.get_logger().info(f'Sending step request...')
-        req = EnvStepCartpole.Request()
+        req = EnvStep.Request()
         req.action = action
         future = self.env_step_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
 
-    def run(self, is_training=True, render=False):
-        if is_training:
+    def run(self):
+        if self.is_training:
             start_time = datetime.now()
             last_graph_update_time = start_time
             log_message = f"{start_time.strftime(DATE_FORMAT)}: Training starting..."
@@ -136,7 +151,7 @@ class Agent(Node):
         rewards_per_episode = []
         policy_dqn = DQN(self.state_dim, self.action_space_dim, self.fc1_nodes).to(device)
 
-        if is_training:
+        if self.is_training:
             epsilon = self.epsilon_init
             memory = ReplayMemory(self.replay_memory_size)
             target_dqn = DQN(self.state_dim, self.action_space_dim, self.fc1_nodes).to(device)
@@ -151,39 +166,44 @@ class Agent(Node):
 
         for episode in itertools.count():
             initial_state_srv = self.send_env_reset_request()
-            state = np.array([initial_state_srv.cart_pos, initial_state_srv.cart_velocity, initial_state_srv.pole_angle, initial_state_srv.pole_angular_velocity])
-            state = torch.tensor(state, dtype=torch.float, device=device)
+            state = torch.tensor(initial_state_srv.state, dtype=torch.float, device=device)
             terminated = False
+            truncated = False
             episode_reward = 0.0
 
-            while not terminated and episode_reward < self.stop_on_reward:
-                if is_training and random.random() < epsilon:
+            while not terminated and not truncated:
+                if self.is_training and random.random() < epsilon:
                     action = random.sample(range(self.action_space_dim), 1)[0]
                 else:
                     with torch.no_grad():
                         action = policy_dqn(state.unsqueeze(dim=0)).squeeze().argmax()
                         action = action.item()
 
+                # Request the next state after taking the action
                 state_srv = self.send_env_step_request(action)
-                state = np.array([state_srv.cart_pos, state_srv.cart_velocity, state_srv.pole_angle, state_srv.pole_angular_velocity])
-                self.step_data = (state, state_srv.reward, state_srv.terminated, state_srv.truncated)
-                new_state, reward, terminated, truncated = self.step_data
-                episode_reward += reward
-                state = torch.tensor(state, dtype=torch.float, device=device)
-                new_state = torch.tensor(new_state, dtype=torch.float, device=device)
-                reward = torch.tensor(reward, dtype=torch.float, device=device)
-                action = torch.tensor(action, dtype=torch.int64, device=device)
-                terminated = torch.tensor(terminated, dtype=torch.float, device=device)
-                truncated = torch.tensor(truncated, dtype=torch.float, device=device)
-                if is_training:
-                    memory.append((state, action, new_state, reward, terminated, truncated))
-                    step_count += 1
+                
+                # Extract state from the response and convert to tensor
+                new_state = torch.tensor(state_srv.state, dtype=torch.float, device=device)
+                
+                # Extract reward, terminated, and truncated from the response
+                reward = torch.tensor(state_srv.reward, dtype=torch.float, device=device)
+                terminated = torch.tensor(state_srv.terminated, dtype=torch.float, device=device)
+                truncated = torch.tensor(state_srv.truncated, dtype=torch.float, device=device)
+                
+                # Update the episode reward
+                episode_reward += reward.item()
+                
+                # Store the step data
+                self.step_data = (state, action, new_state, reward, terminated, truncated)
+                if self.is_training:
+                    memory.append(self.step_data)
+                    step_count+= 1
 
                 state = new_state
 
             rewards_per_episode.append(episode_reward)
 
-            if is_training:
+            if self.is_training:
                 if episode_reward > best_reward:
                     log_message = f"{datetime.now().strftime(DATE_FORMAT)}: New best reward {episode_reward:0.1f} ({(episode_reward-best_reward)/best_reward*100:+.1f}%) at episode {episode}, saving model..."
                     self.get_logger().info(log_message)
@@ -224,7 +244,8 @@ class Agent(Node):
     def optimize(self, mini_batch, policy_dqn, target_dqn):
         states, actions, new_states, rewards, terminations, truncations = zip(*mini_batch)
         states = torch.stack(states)
-        actions = torch.stack(actions)
+        # actions = torch.stack(actions)
+        actions = torch.tensor(actions, dtype=torch.int64)
         new_states = torch.stack(new_states)
         rewards = torch.stack(rewards)
         terminations = torch.tensor(terminations).float().to(device)
@@ -241,7 +262,7 @@ class Agent(Node):
 def main(args=None):
     rclpy.init(args=args)
     agent = Agent()
-    agent.run(is_training=True)
+    agent.run()
     agent.destroy_node()
     rclpy.shutdown()
 

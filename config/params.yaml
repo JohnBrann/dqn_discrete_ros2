@@ -8,7 +8,7 @@ agent:
   ros__parameters:
     model_name: "cartopole1"
     replay_memory_size: 100000
-    mini_batch_size: 128
+    mini_batch_size: 64
     epsilon_init: 1.0
     epsilon_decay: 0.9995
     epsilon_min: 0.05

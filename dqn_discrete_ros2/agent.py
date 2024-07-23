@@ -19,7 +19,7 @@ from rclpy.parameter import Parameter
 
 from model_msgs.srv import EnvReset
 from model_msgs.srv import EnvSetup
-from model_msgs.srv import EnvStepCartpole
+from model_msgs.srv import EnvStep
 
 # For printing date and time
 DATE_FORMAT = "%m-%d %H:%M:%S"
@@ -166,8 +166,7 @@ class Agent(Node):
 
         for episode in itertools.count():
             initial_state_srv = self.send_env_reset_request()
-            state = np.array([initial_state_srv.cart_pos, initial_state_srv.cart_velocity, initial_state_srv.pole_angle, initial_state_srv.pole_angular_velocity])
-            state = torch.tensor(state, dtype=torch.float, device=device)
+            state = torch.tensor(initial_state_srv.state, dtype=torch.float, device=device)
             terminated = False
             episode_reward = 0.0
 
@@ -179,20 +178,25 @@ class Agent(Node):
                         action = policy_dqn(state.unsqueeze(dim=0)).squeeze().argmax()
                         action = action.item()
 
+                # Request the next state after taking the action
                 state_srv = self.send_env_step_request(action)
-                state = np.array([state_srv.cart_pos, state_srv.cart_velocity, state_srv.pole_angle, state_srv.pole_angular_velocity])
-                self.step_data = (state, state_srv.reward, state_srv.terminated, state_srv.truncated)
-                new_state, reward, terminated, truncated = self.step_data
-                episode_reward += reward
-                state = torch.tensor(state, dtype=torch.float, device=device)
-                new_state = torch.tensor(new_state, dtype=torch.float, device=device)
-                reward = torch.tensor(reward, dtype=torch.float, device=device)
-                action = torch.tensor(action, dtype=torch.int64, device=device)
-                terminated = torch.tensor(terminated, dtype=torch.float, device=device)
-                truncated = torch.tensor(truncated, dtype=torch.float, device=device)
+                
+                # Extract state from the response and convert to tensor
+                new_state = torch.tensor(state_srv.state, dtype=torch.float, device=device)
+                
+                # Extract reward, terminated, and truncated from the response
+                reward = torch.tensor(state_srv.reward, dtype=torch.float, device=device)
+                terminated = torch.tensor(state_srv.terminated, dtype=torch.float, device=device)
+                truncated = torch.tensor(state_srv.truncated, dtype=torch.float, device=device)
+                
+                # Update the episode reward
+                episode_reward += reward.item()
+                
+                # Store the step data
+                self.step_data = (state, action, new_state, reward, terminated, truncated)
                 if self.is_training:
-                    memory.append((state, action, new_state, reward, terminated, truncated))
-                    step_count += 1
+                    memory.append(self.step_data)
+                    step_count+= 1
 
                 state = new_state
 
@@ -239,7 +243,8 @@ class Agent(Node):
     def optimize(self, mini_batch, policy_dqn, target_dqn):
         states, actions, new_states, rewards, terminations, truncations = zip(*mini_batch)
         states = torch.stack(states)
-        actions = torch.stack(actions)
+        # actions = torch.stack(actions)
+        actions = torch.tensor(actions, dtype=torch.int64)
         new_states = torch.stack(new_states)
         rewards = torch.stack(rewards)
         terminations = torch.tensor(terminations).float().to(device)

@@ -11,11 +11,15 @@ class RosGymEnvHelper(Node):
     def __init__(self):
         super().__init__('ros_gym_env_helper')
 
-          # Declare parameters
-        self.env_id = self.declare_parameter('env_id', Parameter.Type.STRING).get_parameter_value().string_value
-        self.is_training = self.declare_parameter('is_training', Parameter.Type.BOOL).get_parameter_value().bool_value
-        # self.env_make_params = self.declare_parameter('env_make_params', Parameter.Type.STRING).get_parameter('env_make_params').get_parameter_value().string_value
+         # Declare parameters
+        self.declare_parameter('env_id', 'CartPole-v1')
+        self.declare_parameter('is_training', True)
+        # self.declare_parameter('parameters.ros_gym_env_helper.env_make_params', 'default_value')
 
+        # Get parameter values
+        self.env_id = self.get_parameter('env_id').get_parameter_value().string_value
+        self.is_training = self.get_parameter('is_training').get_parameter_value().bool_value
+        # self.env_make_params = self.get_parameter('parameters.ros_gym_env_helper.env_make_params').get_parameter_value().string_value
 
         # Initialize the gym environment
         self.env = gym.make(self.env_id, render_mode=None if self.is_training else 'human')#, **self.env_make_params)

@@ -139,8 +139,8 @@ class Agent(Node):
         rclpy.spin_until_future_complete(self, future)
         return future.result()
 
-    def run(self, is_training=True, render=False):
-        if is_training:
+    def run(self):
+        if self.is_training:
             start_time = datetime.now()
             last_graph_update_time = start_time
             log_message = f"{start_time.strftime(DATE_FORMAT)}: Training starting..."
@@ -151,7 +151,7 @@ class Agent(Node):
         rewards_per_episode = []
         policy_dqn = DQN(self.state_dim, self.action_space_dim, self.fc1_nodes).to(device)
 
-        if is_training:
+        if self.is_training:
             epsilon = self.epsilon_init
             memory = ReplayMemory(self.replay_memory_size)
             target_dqn = DQN(self.state_dim, self.action_space_dim, self.fc1_nodes).to(device)
@@ -172,7 +172,7 @@ class Agent(Node):
             episode_reward = 0.0
 
             while not terminated and episode_reward < self.stop_on_reward:
-                if is_training and random.random() < epsilon:
+                if self.is_training and random.random() < epsilon:
                     action = random.sample(range(self.action_space_dim), 1)[0]
                 else:
                     with torch.no_grad():
@@ -190,7 +190,7 @@ class Agent(Node):
                 action = torch.tensor(action, dtype=torch.int64, device=device)
                 terminated = torch.tensor(terminated, dtype=torch.float, device=device)
                 truncated = torch.tensor(truncated, dtype=torch.float, device=device)
-                if is_training:
+                if self.is_training:
                     memory.append((state, action, new_state, reward, terminated, truncated))
                     step_count += 1
 
@@ -198,7 +198,7 @@ class Agent(Node):
 
             rewards_per_episode.append(episode_reward)
 
-            if is_training:
+            if self.is_training:
                 if episode_reward > best_reward:
                     log_message = f"{datetime.now().strftime(DATE_FORMAT)}: New best reward {episode_reward:0.1f} ({(episode_reward-best_reward)/best_reward*100:+.1f}%) at episode {episode}, saving model..."
                     self.get_logger().info(log_message)
@@ -256,7 +256,7 @@ class Agent(Node):
 def main(args=None):
     rclpy.init(args=args)
     agent = Agent()
-    agent.run(is_training=True)
+    agent.run()
     agent.destroy_node()
     rclpy.shutdown()
 

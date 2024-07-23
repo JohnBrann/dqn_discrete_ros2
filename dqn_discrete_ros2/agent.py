@@ -168,9 +168,10 @@ class Agent(Node):
             initial_state_srv = self.send_env_reset_request()
             state = torch.tensor(initial_state_srv.state, dtype=torch.float, device=device)
             terminated = False
+            truncated = False
             episode_reward = 0.0
 
-            while not terminated and episode_reward < self.stop_on_reward:
+            while not terminated and not truncated:
                 if self.is_training and random.random() < epsilon:
                     action = random.sample(range(self.action_space_dim), 1)[0]
                 else:

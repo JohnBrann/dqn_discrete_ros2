@@ -18,7 +18,8 @@ agent:
     fc1_nodes: 10
     model_number: 1
     test_folder_number: 1
-    training_epsiodes: 1000
+    training_epsiodes: 50000
+    load_model: run_2/CartPole2
 
 /**:
   ros__parameters:

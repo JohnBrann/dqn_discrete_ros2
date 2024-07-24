@@ -24,10 +24,6 @@ from model_msgs.srv import EnvStep
 # For printing date and time
 DATE_FORMAT = "%m-%d %H:%M:%S"
 
-# # Directory for saving run info
-# RUNS_DIR = "runs"
-# os.makedirs(RUNS_DIR, exist_ok=True)
-
 # 'Agg': used to generate plots as images and save them to a file instead of rendering to screen
 matplotlib.use('Agg')
 
@@ -76,7 +72,8 @@ class Agent(Node):
         self.declare_parameter('fc1_nodes', 10)
         self.declare_parameter('model_number', 1)
         self.declare_parameter('is_training', False)
-        self.declare_parameter('training_epsiodes', 2500)
+        self.declare_parameter('training_epsiodes', 10000)
+        self.declare_parameter('load_model', '')
         
 
         # Set parameter values
@@ -94,6 +91,7 @@ class Agent(Node):
         self.model_number = self.get_parameter('model_number').get_parameter_value().integer_value
         self.is_training = self.get_parameter('is_training').get_parameter_value().bool_value
         self.training_espisodes = self.get_parameter('training_epsiodes').get_parameter_value().integer_value
+        self.load_model = self.get_parameter('load_model').get_parameter_value().string_value
 
 
         self.loss_fn = nn.MSELoss()
@@ -168,7 +166,8 @@ class Agent(Node):
             self.best_reward = -9999999
             self.best_reward_episode = 1
         else:
-            self.policy_dqn.load_state_dict(torch.load(self.MODEL_FILE))
+            model_path = os.path.join("runs", f'{self.load_model}.pt')
+            self.policy_dqn.load_state_dict(torch.load(model_path))
             self.policy_dqn.eval()
 
     def run(self):

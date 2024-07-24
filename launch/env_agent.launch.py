@@ -13,6 +13,13 @@ def generate_launch_description():
         description='Flag to enable training mode'
     )
 
+    load_model_arg = DeclareLaunchArgument(
+        'load_model',
+        default_value=None,
+        description='Flag to tell which model to test'
+
+    )
+
     # Define the YAML configuration file path
     config_file = os.path.join(
         get_package_share_directory('dqn_discrete_ros2'),
@@ -34,6 +41,6 @@ def generate_launch_description():
             executable='agent',
             name='agent',
             output='screen',
-            parameters=[config_file, {'is_training': LaunchConfiguration('is_training')}]
+            parameters=[config_file, {'is_training': LaunchConfiguration('is_training')}, {'load_model': LaunchConfiguration('load_model')}]
         )
     ])

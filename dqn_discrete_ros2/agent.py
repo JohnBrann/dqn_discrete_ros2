@@ -72,7 +72,7 @@ class Agent(Node):
         self.declare_parameter('fc1_nodes', 10)
         self.declare_parameter('model_number', 1)
         self.declare_parameter('is_training', False)
-        self.declare_parameter('training_epsiodes', 10000)
+        self.declare_parameter('training_episodes', 10000)
         self.declare_parameter('load_model', '')
         
 
@@ -90,7 +90,7 @@ class Agent(Node):
         self.fc1_nodes = self.get_parameter('fc1_nodes').get_parameter_value().integer_value
         self.model_number = self.get_parameter('model_number').get_parameter_value().integer_value
         self.is_training = self.get_parameter('is_training').get_parameter_value().bool_value
-        self.training_espisodes = self.get_parameter('training_epsiodes').get_parameter_value().integer_value
+        self.training_episodes = self.get_parameter('training_episodes').get_parameter_value().integer_value
         self.load_model = self.get_parameter('load_model').get_parameter_value().string_value
 
 
@@ -181,7 +181,10 @@ class Agent(Node):
             with open(self.LOG_FILE, 'w') as file:
                 file.write(log_message + '\n')
 
-        for episode in range(self.training_espisodes):  
+        # Calculate halfway point
+        halfway_point = self.training_episodes // 2
+
+        for episode in range(self.training_episodes):  
             initial_state_srv = self.send_env_reset_request()
             state = torch.tensor(initial_state_srv.state, dtype=torch.float, device=device)
             terminated = False
@@ -230,6 +233,17 @@ class Agent(Node):
                     torch.save(self.policy_dqn.state_dict(), self.MODEL_FILE)
                     self.best_reward = episode_reward
 
+                if episode_reward >= self.stop_on_reward:
+                    log_message = f"{datetime.now().strftime(DATE_FORMAT)}: Achieved stop_on_reward {episode_reward}, saving model and graphs, and starting new run..."
+                    self.get_logger().info(log_message)
+                    with open(self.LOG_FILE, 'a') as file:
+                        file.write(log_message + '\n')
+                    torch.save(self.policy_dqn.state_dict(), self.MODEL_FILE)
+                    self.save_graph(self.rewards_per_episode, self.epsilon_history)
+                    self.model_number += 1
+                    self.reset()
+                    return  # Exit the current run and start a new one
+
                 if len(self.memory) > self.mini_batch_size:
                     mini_batch = self.memory.sample(self.mini_batch_size)
                     self.optimize(mini_batch, self.policy_dqn, self.target_dqn)
@@ -239,24 +253,39 @@ class Agent(Node):
                         self.target_dqn.load_state_dict(self.policy_dqn.state_dict())
                         self.step_count = 0
 
+            # Reset epsilon halfway through the training episodes
+            if episode == halfway_point:
+                self.epsilon = 0.5
+                self.epsilon_history.append(self.epsilon)
+
         if self.is_training:
             log_message = f"{datetime.now().strftime(DATE_FORMAT)}: Best reward for {self.model_name}{self.model_number} at episode {self.best_reward_episode} of {self.best_reward}...\n"
             self.get_logger().info(log_message)
             self.save_graph(self.rewards_per_episode, self.epsilon_history)
             self.model_number += 1
 
+
     def save_graph(self, rewards_per_episode, epsilon_history):
-        fig = plt.figure(1)
+        fig, ax1 = plt.subplots()
+
+        # Calculate mean rewards
         mean_rewards = np.zeros(len(rewards_per_episode))
         for x in range(len(mean_rewards)):
             mean_rewards[x] = np.mean(rewards_per_episode[max(0, x-99):(x+1)])
-        plt.subplot(121)
-        plt.ylabel('Mean Rewards')
-        plt.plot(mean_rewards)
-        plt.subplot(122)
-        plt.ylabel('Epsilon Decay')
-        plt.plot(epsilon_history)
-        plt.subplots_adjust(wspace=1.0, hspace=1.0)
+        
+        color = 'tab:blue'
+        ax1.set_xlabel('Episode')
+        ax1.set_ylabel('Mean Rewards', color=color)
+        ax1.plot(mean_rewards, color=color)
+        ax1.tick_params(axis='y', labelcolor=color)
+
+        ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+        color = 'tab:red'
+        ax2.set_ylabel('Epsilon Decay', color=color)  # we already handled the x-label with ax1
+        ax2.plot(epsilon_history, color=color)
+        ax2.tick_params(axis='y', labelcolor=color)
+
+        fig.tight_layout()  # otherwise the right y-label is slightly clipped
         fig.savefig(self.GRAPH_FILE)
         plt.close(fig)
 

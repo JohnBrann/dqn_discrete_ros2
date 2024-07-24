@@ -14,11 +14,11 @@ agent:
     network_sync_rate: 10
     learning_rate_a: 0.0001
     discount_factor_g: 0.99
-    stop_on_reward: 10000
+    stop_on_reward: 500
     fc1_nodes: 10
     model_number: 1
     test_folder_number: 1
-    training_epsiodes: 50000
+    training_episodes: 60000
     load_model: run_2/CartPole2
 
 /**:

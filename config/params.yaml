@@ -1,11 +1,11 @@
 ros_gym_env_helper:
   ros__parameters:
-    env_id: "Acrobot-v1"
+    env_id: "CartPole-v1"
     env_make_params: {}
 
 agent:
   ros__parameters:
-    model_name: "acrobat"
+    model_name: "CartPole"
     replay_memory_size: 100000
     mini_batch_size: 32
     epsilon_init: 1.0
@@ -16,6 +16,9 @@ agent:
     discount_factor_g: 0.99
     stop_on_reward: 10000
     fc1_nodes: 10
+    model_number: 1
+    test_folder_number: 1
+    training_epsiodes: 2500
 
 /**:
   ros__parameters:

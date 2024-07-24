@@ -24,9 +24,9 @@ from model_msgs.srv import EnvStep
 # For printing date and time
 DATE_FORMAT = "%m-%d %H:%M:%S"
 
-# Directory for saving run info
-RUNS_DIR = "runs"
-os.makedirs(RUNS_DIR, exist_ok=True)
+# # Directory for saving run info
+# RUNS_DIR = "runs"
+# os.makedirs(RUNS_DIR, exist_ok=True)
 
 # 'Agg': used to generate plots as images and save them to a file instead of rendering to screen
 matplotlib.use('Agg')
@@ -74,7 +74,10 @@ class Agent(Node):
         self.declare_parameter('discount_factor_g', 0.99)
         self.declare_parameter('stop_on_reward', 1000)
         self.declare_parameter('fc1_nodes', 10)
+        self.declare_parameter('model_number', 1)
         self.declare_parameter('is_training', False)
+        self.declare_parameter('training_epsiodes', 2500)
+        
 
         # Set parameter values
         self.model_name = self.get_parameter('model_name').get_parameter_value().string_value
@@ -88,7 +91,9 @@ class Agent(Node):
         self.discount_factor_g = self.get_parameter('discount_factor_g').get_parameter_value().double_value
         self.stop_on_reward = self.get_parameter('stop_on_reward').get_parameter_value().integer_value
         self.fc1_nodes = self.get_parameter('fc1_nodes').get_parameter_value().integer_value
+        self.model_number = self.get_parameter('model_number').get_parameter_value().integer_value
         self.is_training = self.get_parameter('is_training').get_parameter_value().bool_value
+        self.training_espisodes = self.get_parameter('training_epsiodes').get_parameter_value().integer_value
 
 
         self.loss_fn = nn.MSELoss()
@@ -113,9 +118,13 @@ class Agent(Node):
         self.action_space_dim = dim_message.action_dim
         self.state_dim = dim_message.state_dim
         
-        self.LOG_FILE = os.path.join(RUNS_DIR, f'{self.model_name}.log')
-        self.MODEL_FILE = os.path.join(RUNS_DIR, f'{self.model_name}.pt')
-        self.GRAPH_FILE = os.path.join(RUNS_DIR, f'{self.model_name}.png')
+
+        # Directory for saving run info
+        self.RUNS_DIR = f"run_{self.model_number}"
+        os.makedirs(self.RUNS_DIR, exist_ok=True)        
+        self.LOG_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}.log')
+        self.MODEL_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}.pt')
+        self.GRAPH_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}.png')
 
     def send_env_dim_request(self):
         self.get_logger().info(f'Sending dimension request...')
@@ -139,32 +148,41 @@ class Agent(Node):
         rclpy.spin_until_future_complete(self, future)
         return future.result()
 
+    def reset(self):
+        self.RUNS_DIR = f"run_{self.model_number}"
+        os.makedirs(self.RUNS_DIR, exist_ok=True)
+        self.LOG_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}{self.model_number}.log')
+        self.MODEL_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}{self.model_number}.pt')
+        self.GRAPH_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}{self.model_number}.png')
+        self.rewards_per_episode = []
+        self.policy_dqn = DQN(self.state_dim, self.action_space_dim, self.fc1_nodes).to(device)
+
+        if self.is_training:
+            self.epsilon = self.epsilon_init
+            self.memory = ReplayMemory(self.replay_memory_size)
+            self.target_dqn = DQN(self.state_dim, self.action_space_dim, self.fc1_nodes).to(device)
+            self.target_dqn.load_state_dict(self.policy_dqn.state_dict())
+            self.optimizer = torch.optim.Adam(self.policy_dqn.parameters(), lr=self.learning_rate_a)
+            self.epsilon_history = []
+            self.step_count = 0
+            self.best_reward = -9999999
+            self.best_reward_episode = 1
+        else:
+            self.policy_dqn.load_state_dict(torch.load(self.MODEL_FILE))
+            self.policy_dqn.eval()
+
     def run(self):
+        self.reset()  # Call reset at the beginning of each run
+
         if self.is_training:
             start_time = datetime.now()
             last_graph_update_time = start_time
-            log_message = f"{start_time.strftime(DATE_FORMAT)}: Training starting..."
+            log_message = f"{start_time.strftime(DATE_FORMAT)}: Training starting for run {self.model_number}..."
             self.get_logger().info(log_message)
             with open(self.LOG_FILE, 'w') as file:
                 file.write(log_message + '\n')
 
-        rewards_per_episode = []
-        policy_dqn = DQN(self.state_dim, self.action_space_dim, self.fc1_nodes).to(device)
-
-        if self.is_training:
-            epsilon = self.epsilon_init
-            memory = ReplayMemory(self.replay_memory_size)
-            target_dqn = DQN(self.state_dim, self.action_space_dim, self.fc1_nodes).to(device)
-            target_dqn.load_state_dict(policy_dqn.state_dict())
-            self.optimizer = torch.optim.Adam(policy_dqn.parameters(), lr=self.learning_rate_a)
-            epsilon_history = []
-            step_count = 0
-            best_reward = -9999999
-        else:
-            policy_dqn.load_state_dict(torch.load(self.MODEL_FILE))
-            policy_dqn.eval()
-
-        for episode in itertools.count():
+        for episode in range(self.training_espisodes):  
             initial_state_srv = self.send_env_reset_request()
             state = torch.tensor(initial_state_srv.state, dtype=torch.float, device=device)
             terminated = False
@@ -172,59 +190,61 @@ class Agent(Node):
             episode_reward = 0.0
 
             while not terminated and not truncated:
-                if self.is_training and random.random() < epsilon:
+                if self.is_training and random.random() < self.epsilon:
                     action = random.sample(range(self.action_space_dim), 1)[0]
                 else:
                     with torch.no_grad():
-                        action = policy_dqn(state.unsqueeze(dim=0)).squeeze().argmax()
+                        action = self.policy_dqn(state.unsqueeze(dim=0)).squeeze().argmax()
                         action = action.item()
 
                 # Request the next state after taking the action
                 state_srv = self.send_env_step_request(action)
-                
+
                 # Extract state from the response and convert to tensor
                 new_state = torch.tensor(state_srv.state, dtype=torch.float, device=device)
-                
+
                 # Extract reward, terminated, and truncated from the response
                 reward = torch.tensor(state_srv.reward, dtype=torch.float, device=device)
                 terminated = torch.tensor(state_srv.terminated, dtype=torch.float, device=device)
                 truncated = torch.tensor(state_srv.truncated, dtype=torch.float, device=device)
-                
+
                 # Update the episode reward
                 episode_reward += reward.item()
-                
+
                 # Store the step data
                 self.step_data = (state, action, new_state, reward, terminated, truncated)
                 if self.is_training:
-                    memory.append(self.step_data)
-                    step_count+= 1
+                    self.memory.append(self.step_data)
+                    self.step_count += 1
 
                 state = new_state
 
-            rewards_per_episode.append(episode_reward)
+            self.rewards_per_episode.append(episode_reward)
 
             if self.is_training:
-                if episode_reward > best_reward:
-                    log_message = f"{datetime.now().strftime(DATE_FORMAT)}: New best reward {episode_reward:0.1f} ({(episode_reward-best_reward)/best_reward*100:+.1f}%) at episode {episode}, saving model..."
+                if episode_reward > self.best_reward:
+                    self.best_reward_episode = episode
+                    log_message = f"{datetime.now().strftime(DATE_FORMAT)}: New best reward {episode_reward:0.1f} ({(episode_reward-self.best_reward)/self.best_reward*100:+.1f}%) at episode {self.best_reward_episode}, saving model..."
                     self.get_logger().info(log_message)
                     with open(self.LOG_FILE, 'a') as file:
                         file.write(log_message + '\n')
-                    torch.save(policy_dqn.state_dict(), self.MODEL_FILE)
-                    best_reward = episode_reward
+                    torch.save(self.policy_dqn.state_dict(), self.MODEL_FILE)
+                    self.best_reward = episode_reward
 
-                current_time = datetime.now()
-                if current_time - last_graph_update_time > timedelta(seconds=10):
-                    self.save_graph(rewards_per_episode, epsilon_history)
-                    last_graph_update_time = current_time
+                if len(self.memory) > self.mini_batch_size:
+                    mini_batch = self.memory.sample(self.mini_batch_size)
+                    self.optimize(mini_batch, self.policy_dqn, self.target_dqn)
+                    self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
+                    self.epsilon_history.append(self.epsilon)
+                    if self.step_count > self.network_sync_rate:
+                        self.target_dqn.load_state_dict(self.policy_dqn.state_dict())
+                        self.step_count = 0
 
-                if len(memory) > self.mini_batch_size:
-                    mini_batch = memory.sample(self.mini_batch_size)
-                    self.optimize(mini_batch, policy_dqn, target_dqn)
-                    epsilon = max(epsilon * self.epsilon_decay, self.epsilon_min)
-                    epsilon_history.append(epsilon)
-                    if step_count > self.network_sync_rate:
-                        target_dqn.load_state_dict(policy_dqn.state_dict())
-                        step_count = 0
+        if self.is_training:
+            log_message = f"{datetime.now().strftime(DATE_FORMAT)}: Best reward for {self.model_name}{self.model_number} at episode {self.best_reward_episode} of {self.best_reward}...\n"
+            self.get_logger().info(log_message)
+            self.save_graph(self.rewards_per_episode, self.epsilon_history)
+            self.model_number += 1
 
     def save_graph(self, rewards_per_episode, epsilon_history):
         fig = plt.figure(1)
@@ -245,7 +265,7 @@ class Agent(Node):
         states, actions, new_states, rewards, terminations, truncations = zip(*mini_batch)
         states = torch.stack(states)
         # actions = torch.stack(actions)
-        actions = torch.tensor(actions, dtype=torch.int64)
+        actions = torch.tensor(actions, dtype=torch.int64).to(device)
         new_states = torch.stack(new_states)
         rewards = torch.stack(rewards)
         terminations = torch.tensor(terminations).float().to(device)
@@ -262,7 +282,8 @@ class Agent(Node):
 def main(args=None):
     rclpy.init(args=args)
     agent = Agent()
-    agent.run()
+    for i in range(1, 10):
+        agent.run()
     agent.destroy_node()
     rclpy.shutdown()
 

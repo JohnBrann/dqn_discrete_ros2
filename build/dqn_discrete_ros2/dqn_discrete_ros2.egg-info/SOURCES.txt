@@ -9,4 +9,9 @@ build/dqn_discrete_ros2/dqn_discrete_ros2.egg-info/entry_points.txt
 build/dqn_discrete_ros2/dqn_discrete_ros2.egg-info/requires.txt
 build/dqn_discrete_ros2/dqn_discrete_ros2.egg-info/top_level.txt
 build/dqn_discrete_ros2/dqn_discrete_ros2.egg-info/zip-safe
+config/params.yaml
+dqn_discrete_ros2/__init__.py
+dqn_discrete_ros2/agent.py
+dqn_discrete_ros2/ros_gym_environment_helper.py
+launch/env_agent.launch.py
 resource/dqn_discrete_ros2

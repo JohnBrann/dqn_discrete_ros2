@@ -1,3 +1,4 @@
 [console_scripts]
-environment_publisher = dqn_discrete_ros2.environment_publisher:main
+agent = dqn_discrete_ros2.agent:main
+ros_gym_environment_helper = dqn_discrete_ros2.ros_gym_environment_helper:main
 

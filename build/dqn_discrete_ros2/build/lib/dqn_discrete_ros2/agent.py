@@ -120,7 +120,7 @@ class Agent(Node):
         
 
         # Directory for saving run info
-        self.RUNS_DIR = os.path.join("runs", f"run_{self.model_number}")
+        self.RUNS_DIR = f"run_{self.model_number}"
         os.makedirs(self.RUNS_DIR, exist_ok=True)        
         self.LOG_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}.log')
         self.MODEL_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}.pt')
@@ -149,8 +149,8 @@ class Agent(Node):
         return future.result()
 
     def reset(self):
-        self.RUNS_DIR = os.path.join("runs", f"run_{self.model_number}")
-        os.makedirs(self.RUNS_DIR, exist_ok=True) 
+        self.RUNS_DIR = f"run_{self.model_number}"
+        os.makedirs(self.RUNS_DIR, exist_ok=True)
         self.LOG_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}{self.model_number}.log')
         self.MODEL_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}{self.model_number}.pt')
         self.GRAPH_FILE = os.path.join(self.RUNS_DIR, f'{self.model_name}{self.model_number}.png')
